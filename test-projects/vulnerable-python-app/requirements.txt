@@ -1,0 +1,7 @@
+# Intentionally pinned to old versions so pip-audit reports known CVEs.
+Flask==2.0.1
+Werkzeug==2.0.1
+Jinja2==3.0.0
+itsdangerous==2.0.1
+requests==2.25.0
+PyJWT==2.3.0

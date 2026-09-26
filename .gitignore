@@ -1,0 +1,71 @@
+# --- Python ---
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+.installed.cfg
+*.egg
+
+# --- Virtualenv / packaging ---
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pyre/
+.pytype/
+.ruff_cache/
+
+# --- Test / coverage artifacts ---
+.pytest_cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+coverage/
+junit.xml
+.tox/
+.nox/
+
+# --- Environment / secrets ---
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/
+
+# --- Runtime data (uploads, extracted repos, sandboxes) ---
+# All mutable runtime state lives under data/ by default. The bare names are
+# kept for deployments that set UPLOAD_DIR / WORKSPACE_DIR outside data/.
+data/
+uploads/
+workspaces/
+sandboxes/
+scans/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+
+# --- Frontend (Next.js) ---
+node_modules/
+.next/
+out/
+build/
+next-env.d.ts
+.turbo/
+.vercel/
+*.tsbuildinfo
+
+# --- Tooling binaries ---
+security-rules/.semgrep/
+.security-platform/

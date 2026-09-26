@@ -1,0 +1,320 @@
+# SentinelForge Semgrep rule set (spec: security-rules/)
+#
+# Local rules run offline and take precedence over the registry, so a scan
+# is deterministic and does not require network access. Each rule maps onto
+# the standard finding format (spec §8) via metadata.
+#
+#   semgrep --config security-rules/ <target>
+
+rules:
+  # ------------------------------------------------------------------
+  # Injection
+  # ------------------------------------------------------------------
+  - id: sentinelforge.sql-injection-concat
+    languages: [python]
+    severity: ERROR
+    message: >-
+      SQL query built by string concatenation. Pass values as query
+      parameters instead (cursor.execute(sql, params)).
+    metadata:
+      category: security
+      cwe: "CWE-89: Improper Neutralization of Special Elements used in an SQL Command"
+      owasp: "A03:2021 - Injection"
+      confidence: HIGH
+      likelihood: HIGH
+      impact: HIGH
+      subcategory: [vuln]
+    patterns:
+      - pattern-either:
+          - pattern: $CURSOR.execute($Q + $X, ...)
+          - pattern: $CURSOR.execute($Q % $X, ...)
+          - pattern: $CURSOR.execute(f"...{$X}...", ...)
+          - pattern: $CURSOR.execute("..."+$X+"...", ...)
+          - pattern: $CURSOR.executemany($Q + $X, ...)
+          - pattern: $CURSOR.execute("...{$X}...", ...)
+
+  - id: sentinelforge.sql-injection-assigned-query
+    languages: [python]
+    severity: ERROR
+    message: >-
+      A SQL string built by concatenation is passed to execute(). Pass the
+      values as query parameters instead: cursor.execute(sql, (value,)).
+    metadata:
+      category: security
+      cwe: "CWE-89: Improper Neutralization of Special Elements used in an SQL Command"
+      owasp: "A03:2021 - Injection"
+      confidence: HIGH
+      likelihood: HIGH
+      impact: HIGH
+      subcategory: [vuln]
+    patterns:
+      - pattern: |
+          $Q = $BASE + $X
+          ...
+          $CURSOR.execute($Q, ...)
+      - metavariable-regex:
+          metavariable: $BASE
+          regex: (?i).*(select|insert into|update|delete from|drop table|union).*
+
+  - id: sentinelforge.sql-injection-fstring
+    languages: [python]
+    severity: ERROR
+    message: >-
+      SQL query built with an f-string. User input interpolated this way is
+      not escaped; use a parameterized query.
+    metadata:
+      category: security
+      cwe: "CWE-89: Improper Neutralization of Special Elements used in an SQL Command"
+      owasp: "A03:2021 - Injection"
+      confidence: HIGH
+      subcategory: [vuln]
+    patterns:
+      - pattern-inside: |
+          $Q = f"..."
+      - metavariable-regex:
+          metavariable: $Q
+          regex: (?i).*(select|insert|update|delete|drop|union).*
+
+  - id: sentinelforge.command-injection-shell-true
+    languages: [python]
+    severity: ERROR
+    message: >-
+      Command executed through a shell. Pass an argument list and leave
+      shell=False so metacharacters cannot spawn a second command.
+    metadata:
+      category: security
+      cwe: "CWE-78: Improper Neutralization of Special Elements used in an OS Command"
+      owasp: "A03:2021 - Injection"
+      confidence: HIGH
+      subcategory: [vuln]
+    pattern-either:
+      - pattern: subprocess.run(..., shell=True, ...)
+      - pattern: subprocess.Popen(..., shell=True, ...)
+      - pattern: subprocess.call(..., shell=True, ...)
+      - pattern: subprocess.check_output(..., shell=True, ...)
+      - pattern: os.system($X)
+
+  - id: sentinelforge.command-injection-os-popen
+    languages: [python]
+    severity: ERROR
+    message: "Command executed with os.popen; use subprocess with an argument list."
+    metadata:
+      category: security
+      cwe: "CWE-78: Improper Neutralization of Special Elements used in an OS Command"
+      confidence: MEDIUM
+      subcategory: [vuln]
+    patterns:
+      - pattern: os.popen($X + $Y, ...)
+      - pattern: os.popen(f"...{$X}...", ...)
+
+  # ------------------------------------------------------------------
+  # Deserialization
+  # ------------------------------------------------------------------
+  - id: sentinelforge.pickle-loads
+    languages: [python]
+    severity: ERROR
+    message: >-
+      pickle deserialization executes arbitrary code while loading. Replace
+      it with JSON, or verify an HMAC over the payload before loading.
+    metadata:
+      category: security
+      cwe: "CWE-502: Deserialization of Untrusted Data"
+      owasp: "A08:2021 - Software and Data Integrity Failures"
+      confidence: HIGH
+      subcategory: [vuln]
+    pattern-either:
+      - pattern: pickle.loads($X)
+      - pattern: pickle.load($X)
+      - pattern: cPickle.loads($X)
+      - pattern: _pickle.loads($X)
+      - pattern: marshal.loads($X)
+      - pattern: dill.loads($X)
+
+  - id: sentinelforge.yaml-unsafe-load
+    languages: [python]
+    severity: ERROR
+    message: "yaml.load without SafeLoader can construct arbitrary Python objects; use yaml.safe_load."
+    metadata:
+      category: security
+      cwe: "CWE-502: Deserialization of Untrusted Data"
+      confidence: HIGH
+      subcategory: [vuln]
+    pattern-either:
+      - pattern: yaml.load($X)
+      - pattern: yaml.load($X, Loader=yaml.Loader)
+      - pattern: yaml.unsafe_load($X)
+      - pattern: yaml.full_load($X)
+
+  # ------------------------------------------------------------------
+  # Secrets
+  # ------------------------------------------------------------------
+  - id: sentinelforge.hardcoded-credential-assignment
+    languages: [python]
+    severity: WARNING
+    message: >-
+      Credential assigned as a literal. Load it from an environment
+      variable or secret manager instead of committing it.
+    metadata:
+      category: security
+      cwe: "CWE-798: Use of Hard-coded Credentials"
+      owasp: "A07:2021 - Identification and Authentication Failures"
+      confidence: MEDIUM
+      subcategory: [vuln]
+    patterns:
+      - pattern: $NAME = $VALUE
+      - metavariable-regex:
+          metavariable: $NAME
+          regex: (?i).*(password|passwd|secret|api_?key|token|private_?key|credential|access_?key).*
+      - metavariable-pattern:
+          metavariable: $VALUE
+          patterns:
+            - pattern: "..."
+            - pattern: b"..."
+
+  - id: sentinelforge.hardcoded-aws-key
+    languages: [python]
+    severity: ERROR
+    message: "AWS access key committed to source. Revoke and rotate it immediately."
+    metadata:
+      category: security
+      cwe: "CWE-798: Use of Hard-coded Credentials"
+      confidence: HIGH
+      subcategory: [vuln]
+    pattern-regex: (?i)(AKIA[0-9A-Z]{16}|ASIA[0-9A-Z]{16})
+
+  # ------------------------------------------------------------------
+  # Cryptography
+  # ------------------------------------------------------------------
+  - id: sentinelforge.weak-password-hash
+    languages: [python]
+    severity: ERROR
+    message: >-
+      MD5/SHA1 used to hash a password. These are fast and brute-forceable;
+      use bcrypt, scrypt or argon2 with a unique per-user salt.
+    metadata:
+      category: security
+      cwe: "CWE-916: Use of Password Hash With Insufficient Computational Effort"
+      confidence: HIGH
+      subcategory: [vuln]
+    pattern-either:
+      - pattern: hashlib.md5(...)
+      - pattern: hashlib.sha1(...)
+      - pattern: hashlib.new("md5", ...)
+      - pattern: hashlib.new("sha1", ...)
+
+  - id: sentinelforge.insecure-cipher
+    languages: [python]
+    severity: WARNING
+    message: "Insecure cipher/mode. Use AES-GCM or ChaCha20-Poly1305."
+    metadata:
+      category: security
+      cwe: "CWE-327: Use of a Broken or Risky Cryptographic Algorithm"
+      confidence: MEDIUM
+      subcategory: [vuln]
+    pattern-either:
+      - pattern: $C.new($M, ..., mode=MODE_ECB)
+      - pattern: $C.new($M, ..., mode="ECB")
+      - pattern: ssl.$PROTOCOL(version=ssl.PROTOCOL_SSLv3, ...)
+      - pattern: ssl.$PROTOCOL(version=ssl.PROTOCOL_TLSv1, ...)
+
+  - id: secrets-insecure-random
+    languages: [python]
+    severity: WARNING
+    message: >-
+      Non-cryptographic RNG used where a secret is produced. Use
+      secrets.token_hex / secrets.choice instead.
+    metadata:
+      category: security
+      cwe: "CWE-330: Use of Insufficiently Random Values"
+      confidence: MEDIUM
+      subcategory: [vuln]
+    pattern-either:
+      - pattern: random.randint(...)
+      - pattern: random.choice(...)
+      - pattern: random.random()
+    pattern-inside: |
+        def $F(...):
+          ...
+          if ...token... or ...secret... or ...password... or ...key...:
+            ...
+
+  # ------------------------------------------------------------------
+  # Path traversal
+  # ------------------------------------------------------------------
+  - id: sentinelforge.path-traversal-join
+    languages: [python]
+    severity: WARNING
+    message: >-
+      User-controlled path joined onto a base directory without a
+      containment check. Resolve the result and assert it stays inside the
+      intended directory (os.path.commonpath / Path.is_relative_to).
+    metadata:
+      category: security
+      cwe: "CWE-22: Improper Limitation of a Pathname to a Restricted Directory"
+      owasp: "A01:2021 - Broken Access Control"
+      confidence: MEDIUM
+      subcategory: [vuln]
+    pattern-either:
+      - pattern: os.path.join($BASE, $USERINPUT, ...)
+      - pattern: open(os.path.join($BASE, $USERINPUT, ...), ...)
+      - pattern: $BASE / $USERINPUT
+
+  - id: sentinelforge.path-traversal-open
+    languages: [python]
+    severity: WARNING
+    message: "File opened with a path built from input; verify containment inside the base directory."
+    metadata:
+      category: security
+      cwe: "CWE-22: Improper Limitation of a Pathname to a Restricted Directory"
+      confidence: MEDIUM
+      subcategory: [vuln]
+    pattern-either:
+      - pattern: open($PATH + $X, ...)
+      - pattern: open(f"...{$X}...", ...)
+      - pattern: open(os.path.join(..., $X, ...), ...)
+
+  # ------------------------------------------------------------------
+  # Web framework issues
+  # ------------------------------------------------------------------
+  - id: sentinelforge.debug-enabled
+    languages: [python]
+    severity: WARNING
+    message: "Debug mode enabled. Werkzeug's debugger can execute arbitrary code on request."
+    metadata:
+      category: security
+      cwe: "CWE-489: Active Debug Code"
+      confidence: HIGH
+      subcategory: [vuln]
+    pattern-either:
+      - pattern: $APP.run(..., debug=True, ...)
+      - pattern: app.debug = True
+
+  - id: sentinelforge.permissive-cors
+    languages: [python]
+    severity: WARNING
+    message: "CORS allows every origin. Restrict to the trusted origins the app actually serves."
+    metadata:
+      category: security
+      cwe: "CWE-942: Permissive Cross-domain Policy with Untrusted Domains"
+      confidence: HIGH
+      subcategory: [vuln]
+    pattern-either:
+      - pattern: $CORS(..., origins="*", ...)
+      - pattern: $CORS(..., allow_origins=["*"], ...)
+      - pattern: "Access-Control-Allow-Origin: \"*\""
+      - pattern: $RESP.headers["Access-Control-Allow-Origin"] = "*"
+
+  - id: sentinelforge.insecure-request-no-timeout
+    languages: [python]
+    severity: WARNING
+    message: "Outbound request without a timeout can hang a worker thread indefinitely."
+    metadata:
+      category: security
+      cwe: "CWE-400: Uncontrolled Resource Consumption"
+      confidence: MEDIUM
+      subcategory: [vuln]
+    pattern-either:
+      - pattern: requests.get($URL)
+      - pattern: requests.post($URL, ...)
+      - pattern: httpx.get($URL)
+      - pattern: urllib.request.urlopen($URL)

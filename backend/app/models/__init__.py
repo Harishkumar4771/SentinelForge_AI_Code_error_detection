@@ -1,0 +1,53 @@
+"""ORM model registry. Importing this package registers every mapper."""
+
+from app.models.entities import (
+    AgentExecution,
+    FileRecord,
+    Finding,
+    Patch,
+    Project,
+    Scan,
+    ScanEvent,
+    TestCase,
+    new_id,
+    utcnow,
+)
+from app.models.enums import (
+    AgentName,
+    AgentStatus,
+    Certainty,
+    FindingCategory,
+    FindingStatus,
+    ProjectStatus,
+    SandboxBackend,
+    ScanStatus,
+    Severity,
+    TestStatus,
+    TestType,
+    ValidationStatus,
+)
+
+__all__ = [
+    "AgentExecution",
+    "AgentName",
+    "AgentStatus",
+    "Certainty",
+    "FileRecord",
+    "Finding",
+    "FindingCategory",
+    "FindingStatus",
+    "Patch",
+    "Project",
+    "ProjectStatus",
+    "SandboxBackend",
+    "Scan",
+    "ScanEvent",
+    "ScanStatus",
+    "Severity",
+    "TestCase",
+    "TestStatus",
+    "TestType",
+    "ValidationStatus",
+    "new_id",
+    "utcnow",
+]
