@@ -18,16 +18,7 @@ from app.services.repository import build_snapshot
 
 
 @pytest.fixture
-async def outcome(demo_repo, python_executable):
-    from app.services.orchestrator import ScanOrchestrator
-
-    return await ScanOrchestrator().run(
-        demo_repo, project_id="demo", python=python_executable
-    )
-
-
-@pytest.fixture
-async def stored(db_session, outcome, demo_repo, tmp_path):
+async def stored(db_session, outcome, scan_events, demo_repo):
     """A scan written to the database, plus the handles needed to read it back."""
     store = ScanPersistence(db_session)
     project = await store.create_project(
@@ -37,10 +28,7 @@ async def stored(db_session, outcome, demo_repo, tmp_path):
     scan = await store.start_scan(project)
     scan.id = outcome.scan_id
     await db_session.flush()
-    events = [
-        {"phase": "ingest", "message": "test event", "progress": 5.0, "agent": "security_agent"}
-    ]
-    await store.save_outcome(scan, outcome, events)
+    await store.save_outcome(scan, outcome, list(scan_events))
     return store, project, scan
 
 

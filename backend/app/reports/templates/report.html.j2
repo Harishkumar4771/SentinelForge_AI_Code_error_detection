@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+{#
+  SentinelForge scan report (HTML).
+
+  Rendered with autoescaping on. Every value below can originate in an untrusted
+  scanned repository -- file paths, titles, code snippets, diffs, test output --
+  so nothing here may be interpolated as raw HTML.
+#}
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SentinelForge report &mdash; {{ r.project_name }}</title>
+<style>
+  :root {
+    --bg: #0f1419; --panel: #171d26; --line: #262e3a; --text: #e6edf3;
+    --muted: #9aa7b4; --critical: #ff5c5c; --high: #ff9f43;
+    --medium: #ffd93d; --low: #6fb3ff; --ok: #3ddc97; --bad: #ff5c5c;
+  }
+  @media (prefers-color-scheme: light) {
+    :root { --bg:#f6f8fa; --panel:#fff; --line:#d8dee4; --text:#1f2328;
+            --muted:#5b6672; --ok:#1a7f4b; --bad:#b42318; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; padding:2rem 1.25rem 4rem; background:var(--bg); color:var(--text);
+         font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; }
+  .wrap { max-width: 1000px; margin: 0 auto; }
+  h1 { font-size:1.6rem; margin:0 0 .25rem; }
+  h2 { font-size:1.15rem; margin:2.5rem 0 .75rem; padding-bottom:.4rem; border-bottom:1px solid var(--line); }
+  h3 { font-size:1rem; margin:2rem 0 .5rem; }
+  h4 { font-size:.9rem; margin:1.25rem 0 .4rem; color:var(--muted); }
+  .sub { color:var(--muted); font-size:.85rem; margin:0 0 1.25rem; }
+  .banner { border-radius:8px; padding:.85rem 1rem; margin:1.25rem 0; border:1px solid; font-size:.9rem; }
+  .banner.warn { border-color:var(--high); background:rgba(255,159,67,.12); }
+  .banner.ok   { border-color:var(--ok);   background:rgba(61,220,151,.10); }
+  .banner.err  { border-color:var(--bad);  background:rgba(255,92,92,.12); }
+  table { width:100%; border-collapse:collapse; margin:.75rem 0; font-size:.88rem; }
+  th, td { text-align:left; padding:.5rem .6rem; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { color:var(--muted); font-weight:600; font-size:.78rem; text-transform:uppercase; letter-spacing:.04em; }
+  code, pre { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:.84em; }
+  pre { background:var(--panel); border:1px solid var(--line); border-radius:6px;
+        padding:.75rem; overflow-x:auto; }
+  :not(pre) > code { background:var(--panel); border:1px solid var(--line);
+                     border-radius:4px; padding:.1em .35em; }
+  .cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:.75rem; margin:1rem 0; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:.85rem 1rem; }
+  .card .n { font-size:1.5rem; font-weight:600; line-height:1.2; }
+  .card .l { color:var(--muted); font-size:.75rem; text-transform:uppercase; letter-spacing:.05em; margin-top:.2rem; }
+  .sev { font-weight:600; font-size:.78rem; padding:.1rem .45rem; border-radius:4px; }
+  .sev-CRITICAL { color:var(--critical); } .sev-HIGH { color:var(--high); }
+  .sev-MEDIUM { color:var(--medium); }   .sev-LOW { color:var(--low); }
+  .sev-INFO { color:var(--muted); }
+  .tag { display:inline-block; font-size:.72rem; padding:.1rem .45rem; border-radius:4px;
+         border:1px solid var(--line); color:var(--muted); margin-right:.3rem; }
+  .tag.ok { color:var(--ok); border-color:var(--ok); }
+  .tag.bad { color:var(--bad); border-color:var(--bad); }
+  details { border:1px solid var(--line); border-radius:6px; padding:.5rem .75rem; margin:.5rem 0; background:var(--panel); }
+  summary { cursor:pointer; color:var(--muted); font-size:.85rem; }
+  .finding { border-top:1px solid var(--line); padding-top:.5rem; margin-top:1.5rem; }
+  .muted { color:var(--muted); } .small { font-size:.82rem; }
+  footer { margin-top:3rem; padding-top:1rem; border-top:1px solid var(--line); color:var(--muted); font-size:.78rem; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>Security &amp; Quality Report</h1>
+<p class="sub">
+  Project <strong>{{ r.project_name }}</strong> &middot;
+  scan <code>{{ r.scan_id }}</code> &middot; status <strong>{{ r.scan_status }}</strong> &middot;
+  generated {{ r.generated_at.strftime('%Y-%m-%d %H:%M UTC') }}
+  {%- if r.ai_provider %} &middot; provider <code>{{ r.ai_provider }}</code>{% endif %}
+</p>
+
+{% if r.isolated is false %}
+<div class="banner warn">
+  <strong>Sandbox isolation: NOT ISOLATED.</strong>
+  The fixes below were executed on the host, not inside a container. The results are real
+  but were not confined &mdash; do not run this pipeline against code you would not run locally.
+</div>
+{% elif r.isolated is true %}
+<div class="banner ok"><strong>Sandbox isolation: containerised.</strong> Fixes were verified inside a sandbox.</div>
+{% else %}
+<div class="banner warn"><strong>Sandbox isolation: not recorded.</strong> Treat the verification results as unconfirmed.</div>
+{% endif %}
+{% if r.error %}
+<div class="banner err"><strong>Scan error:</strong> {{ r.error }}</div>
+{% endif %}
+{% for w in r.ingestion_warnings %}
+<div class="banner warn">{{ w }}</div>
+{% endfor %}
+
+<h2>Summary</h2>
+<div class="cards">
+  <div class="card"><div class="n">{{ r.summary.security_score }}</div><div class="l">Security score</div></div>
+  <div class="card"><div class="n">{{ r.summary.total_findings }}</div><div class="l">Findings</div></div>
+  <div class="card"><div class="n" style="color:var(--critical)">{{ r.summary.critical }}</div><div class="l">Critical</div></div>
+  <div class="card"><div class="n" style="color:var(--high)">{{ r.summary.high }}</div><div class="l">High</div></div>
+  <div class="card"><div class="n" style="color:var(--ok)">{{ r.summary.verified_fixes }}</div><div class="l">Verified fixes</div></div>
+  <div class="card"><div class="n" style="color:var(--bad)">{{ r.summary.failed_fixes }}</div><div class="l">Failed fixes</div></div>
+  <div class="card"><div class="n">{{ r.summary.remaining }}</div><div class="l">Open for review</div></div>
+  <div class="card"><div class="n">{{ r.summary.tests_generated }}</div><div class="l">Tests generated</div></div>
+</div>
+
+{% if r.summary.remaining > 0 %}
+<div class="banner warn">
+  <strong>Not everything was fixed.</strong>
+  {{ r.summary.remaining }} finding{{ '' if r.summary.remaining == 1 else 's' }} have no verified fix
+  ({{ r.summary.coverage_pct }}% of findings were fixed). All of them are listed below.
+</div>
+{% endif %}
+
+<h2>Findings ({{ findings|length }})</h2>
+{% if not findings %}
+<p class="muted">No findings were reported for this scan.</p>
+{% else %}
+<table>
+  <thead><tr><th>#</th><th>Severity</th><th>Finding</th><th>Location</th><th>Status</th><th>Fix</th></tr></thead>
+  <tbody>
+  {% for f in findings %}
+    <tr>
+      <td>{{ loop.index }}</td>
+      <td><span class="sev sev-{{ f.severity }}">{{ f.severity }}</span></td>
+      <td>{{ f.title }}</td>
+      <td><code>{{ f.location }}</code></td>
+      <td>{{ f.status }}</td>
+      <td>{% if f.verified %}<span class="tag ok">verified</span>
+          {% elif f.patch %}<span class="tag bad">not verified</span>
+          {% else %}<span class="tag">none</span>{% endif %}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+
+{% for f in findings %}
+<div class="finding">
+  <h3>{{ loop.index }}. {{ f.title }}</h3>
+  <p class="small muted">
+    <span class="sev sev-{{ f.severity }}">{{ f.severity }}</span>
+    &middot; <code>{{ f.location }}</code>
+    &middot; {{ f.certainty }} ({{ '%.2f'|format(f.confidence) }})
+    &middot; {{ f.status }}
+    &middot; detected by {{ f.detected_by|join(', ') if f.detected_by else 'unknown' }}
+    {%- if f.patch %} &middot; <strong>{{ f.patch.assurance }}</strong>{% endif %}
+  </p>
+  {% if f.description %}<p>{{ f.description }}</p>{% endif %}
+  {% if f.code_snippet %}<pre><code>{{ f.code_snippet }}</code></pre>{% endif %}
+  {% if f.impact %}<p><strong>Impact.</strong> {{ f.impact }}</p>{% endif %}
+  {% if f.recommendation %}<p><strong>Recommendation.</strong> {{ f.recommendation }}</p>{% endif %}
+
+  {% if f.patch %}
+    {% if f.patch.diff %}
+    <details><summary>Proposed diff &mdash; {{ f.patch.file_path }}</summary>
+      <pre><code>{{ f.patch.diff }}</code></pre>
+    </details>
+    {% endif %}
+    <h4>Verification gates</h4>
+    {% if f.patch.gates %}
+    <table>
+      <thead><tr><th>Gate</th><th>Result</th><th>Detail</th></tr></thead>
+      <tbody>
+      {% for g in f.patch.gates %}
+        <tr>
+          <td>{{ g.label }}</td>
+          <td>{% if g.passed %}<span class="tag ok">PASS</span>{% else %}<span class="tag bad">FAIL</span>{% endif %}</td>
+          <td class="small muted">{{ g.detail or '-' }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p class="small muted">No verification gates were recorded for this patch.</p>
+    {% endif %}
+    {% if f.patch.reason %}<p class="small"><strong>Why not verified.</strong> {{ f.patch.reason }}</p>{% endif %}
+  {% endif %}
+
+  {% if f.tests %}
+  <h4>Tests generated</h4>
+  <ul class="small">
+    {% for t in f.tests %}
+    <li><code>{{ t.name }}</code> &mdash; {{ t.test_type }}{% if t.is_exploit_test %}, exploit test{% endif %}, target <code>{{ t.target_file or 'n/a' }}</code>, status {{ t.status }}</li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+</div>
+{% endfor %}
+
+{% if r.orphan_patches %}
+<h2>Unattributed patches</h2>
+<p class="muted small">These could not be linked back to a finding, so they are shown rather than dropped.</p>
+<ul class="small">
+{% for p in r.orphan_patches %}
+  <li><code>{{ p.file_path }}</code> &rarr; {{ p.validation_status }} (finding <code>{{ p.finding_id }}</code> not found)</li>
+{% endfor %}
+</ul>
+{% endif %}
+
+<h2>Agent runs</h2>
+<table>
+  <thead><tr><th>Agent</th><th>Status</th><th>Findings</th><th>Duration</th><th>Notes</th></tr></thead>
+  <tbody>
+  {% for a in r.agents %}
+    <tr>
+      <td><code>{{ a.name }}</code></td>
+      <td>{% if a.status == 'COMPLETED' %}<span class="tag ok">{{ a.status }}</span>{% else %}<span class="tag bad">{{ a.status }}</span>{% endif %}</td>
+      <td>{{ a.findings_count }}</td>
+      <td>{{ '%.0f ms'|format(a.duration_ms or 0) }}</td>
+      <td class="small muted">{{ a.error or a.message or '-' }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+
+<h2>Scan timeline</h2>
+<table>
+  <thead><tr><th>Progress</th><th>Phase</th><th>Message</th></tr></thead>
+  <tbody>
+  {% for e in r.events %}
+    <tr>
+      <td>{{ '%.0f%%'|format(e.progress or 0) }}</td>
+      <td>{{ e.phase }}{% if e.agent %} <span class="muted small">({{ e.agent }})</span>{% endif %}</td>
+      <td class="small">{{ e.message }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+
+<footer>
+  Generated by SentinelForge &middot; scan <code>{{ r.scan_id }}</code> &middot;
+  {{ duration(r.duration_seconds) }} total.
+  Findings are tool-reported and unconfirmed unless marked verified above; verified means
+  the exploit reproduced, the patch applied, existing tests still passed, and the finding
+  was gone on rescan.
+</footer>
+
+</div>
+</body>
+</html>

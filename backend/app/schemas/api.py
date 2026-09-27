@@ -150,13 +150,22 @@ class AgentExecutionOut(BaseModel):
 
 
 class ScanEventOut(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
+    """
+    One entry in a scan's timeline.
+
+    The field names deliberately match the live SSE stream (``phase``, ``agent``)
+    rather than the database column names: a client that has followed the stream
+    and then reconnects to replay history must not have to learn a second
+    vocabulary for the same events.
+    """
+
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
     id: str
     scan_id: str
     seq: int
-    agent_name: Optional[str] = None
-    event_type: str
+    agent: Optional[str] = Field(default=None, validation_alias="agent_name")
+    phase: str = Field(validation_alias="event_type")
     status: Optional[str] = None
     progress: Optional[float] = None
     message: str = ""

@@ -364,6 +364,24 @@ class ScanPersistence:
         )
         return list(result)
 
+    async def agent_executions_for_scan(self, scan_id: str) -> list[AgentExecution]:
+        """
+        Agent runs in pipeline order, so a reader sees the same sequence the
+        orchestrator actually executed rather than database insertion order.
+        """
+        order = {
+            "security_agent": 0,
+            "bug_hunter": 1,
+            "testing_agent": 2,
+            "fix_agent": 3,
+        }
+        result = await self.session.scalars(
+            select(AgentExecution).where(AgentExecution.scan_id == scan_id)
+        )
+        return sorted(
+            result, key=lambda a: (order.get(a.agent_name, 99), a.agent_name)
+        )
+
     async def delete_project(self, project_id: str) -> bool:
         project = await self.get_project(project_id)
         if project is None:

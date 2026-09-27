@@ -224,11 +224,21 @@ class TestScanLifecycle:
         assert unverified, "the fixture has more findings than the fix agent handles"
         assert all(f["status"] != "VERIFIED" for f in unverified)
 
-    async def test_local_sandbox_is_reported_as_non_isolated(self, finished) -> None:
-        if "docker" in finished["scan"].get("sandbox_backend", "").lower():
-            pytest.skip("docker sandbox: isolation is genuine")
+    async def test_sandbox_isolation_is_reported_honestly(self, api_client, finished) -> None:
+        """
+        A patch that ran on the host must say so.
+
+        The local fallback executes untrusted repository code with no isolation,
+        so claiming otherwise would misrepresent the assurance behind a VERIFIED
+        fix. Under the docker backend the same field must flip to true.
+        """
+        backend = (await api_client.get("/api/health")).json()["sandbox"]
+        expect_isolated = "docker" in backend.lower()
         for patch in finished["patches"]:
-            assert patch["isolated"] is False, "a host-run patch claimed isolation"
+            assert patch["verification"]["isolated"] is expect_isolated, (
+                f"patch claims isolation={patch['verification']['isolated']} "
+                f"but the sandbox backend is {backend!r}"
+            )
 
 
 class TestFindingFilters:
@@ -320,3 +330,83 @@ class TestEvents:
                     # Must parse standalone: a dashboard's EventSource does too.
                     json.loads(line[5:].strip())
                     break
+
+
+class TestReportEndpoint:
+    @pytest.fixture
+    async def finished(self, api_client, repo_archive):
+        project = await _upload(api_client, repo_archive)
+        return await _run_scan(api_client, project["id"])
+
+    async def test_markdown_by_default(self, api_client, finished) -> None:
+        response = await api_client.get(f"/api/scans/{finished['scan']['id']}/report")
+        assert response.status_code == 200
+        assert response.headers["content-type"].startswith("text/markdown")
+        assert "Security & Quality Report" in response.text
+        assert "NOT ISOLATED" in response.text
+
+    @pytest.mark.parametrize(
+        "fmt,ctype",
+        [
+            ("md", "text/markdown"),
+            ("markdown", "text/markdown"),
+            ("html", "text/html"),
+            ("json", "application/json"),
+        ],
+    )
+    async def test_every_format_downloads(self, api_client, finished, fmt, ctype) -> None:
+        response = await api_client.get(
+            f"/api/scans/{finished['scan']['id']}/report", params={"format": fmt}
+        )
+        assert response.status_code == 200
+        assert response.headers["content-type"].startswith(ctype)
+        assert f".{ 'md' if fmt in ('md','markdown') else fmt}" in response.headers["content-disposition"]
+        assert response.text.strip()
+
+    async def test_download_flag_switches_disposition(self, api_client, finished) -> None:
+        scan_id = finished["scan"]["id"]
+        inline = await api_client.get(f"/api/scans/{scan_id}/report")
+        attachment = await api_client.get(f"/api/scans/{scan_id}/report", params={"download": True})
+        assert "inline" in inline.headers["content-disposition"]
+        assert "attachment" in attachment.headers["content-disposition"]
+
+    async def test_sets_no_store_and_nosniff(self, api_client, finished) -> None:
+        response = await api_client.get(f"/api/scans/{finished['scan']['id']}/report")
+        assert response.headers["cache-control"] == "no-store"
+        assert response.headers["x-content-type-options"] == "nosniff"
+
+    async def test_html_is_escaped(self, api_client, finished) -> None:
+        response = await api_client.get(
+            f"/api/scans/{finished['scan']['id']}/report", params={"format": "html"}
+        )
+        assert response.text.lstrip().startswith("<!DOCTYPE html>")
+
+    async def test_json_summary_is_consistent(self, api_client, finished) -> None:
+        response = await api_client.get(
+            f"/api/scans/{finished['scan']['id']}/report", params={"format": "json"}
+        )
+        payload = json.loads(response.text)
+        assert payload["summary"]["verified_fixes"] == 3
+        assert payload["assurance"]["isolated"] is False
+        verified = {
+            f["fix"]["file_path"]
+            for f in payload["findings"]
+            if f.get("fix", {}).get("verified")
+        }
+        assert verified == KNOWN_VERIFIED
+
+    async def test_unknown_format_is_a_422(self, api_client, finished) -> None:
+        response = await api_client.get(
+            f"/api/scans/{finished['scan']['id']}/report", params={"format": "pdf"}
+        )
+        assert response.status_code == 422
+        assert "unsupported report format" in response.text
+
+    async def test_unknown_scan_is_a_404(self, api_client) -> None:
+        response = await api_client.get("/api/scans/nope/report")
+        assert response.status_code == 404
+
+    async def test_reports_are_available_before_and_after_verification(self, api_client, finished) -> None:
+        """A report must be renderable for any scan, not only fully successful ones."""
+        scan_id = finished["scan"]["id"]
+        assert (await api_client.get(f"/api/scans/{scan_id}/report")).status_code == 200

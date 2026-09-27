@@ -13,9 +13,10 @@ import asyncio
 import json
 import pathlib
 from collections.abc import AsyncGenerator
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -35,6 +36,7 @@ from app.schemas.api import (
     TestCaseOut,
 )
 from app.services.persistence import ScanPersistence
+from app.services.reporting import ReportError, render_report
 from app.services import scan_manager
 from app.services.scan_manager import _SENTINEL
 
@@ -185,12 +187,36 @@ async def get_scan(
     )
 
 
+def _severity_param(
+    severity: str | None = Query(
+        None,
+        description="Filter by severity (case-insensitive). An unknown value is "
+        "rejected rather than silently treated as no filter.",
+    ),
+) -> Severity | None:
+    """Parse a severity filter leniently on case, strictly on value.
+
+    A typo must not look like a correct, empty result, so anything that is not a
+    real severity is a 422 rather than a silently ignored filter.
+    """
+    if severity is None:
+        return None
+    try:
+        return Severity(severity.strip().upper())
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                f"Unknown severity {severity!r}. "
+                f"Expected one of: {', '.join(s.value for s in Severity)}"
+            ),
+        ) from None
+
+
 @router.get("/{scan_id}/findings", response_model=list[FindingOut])
 async def list_findings(
     scan_id: str,
-    severity: Severity | None = Query(
-        None, description="Filter by severity; an unknown value is rejected, not ignored"
-    ),
+    severity: Annotated[Severity | None, Depends(_severity_param)] = None,
     verified: bool | None = Query(
         None, description="Filter by whether the fix passed the verification gates"
     ),
@@ -200,8 +226,6 @@ async def list_findings(
     if await store.get_scan(scan_id) is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="scan not found")
     findings = await store.findings_for_scan(scan_id)
-    # Filtering is case-insensitive but must be an explicit choice: a typo that
-    # silently returned everything would look like a correct answer.
     if severity is not None:
         findings = [f for f in findings if f.severity == severity.value]
     if verified is not None:
@@ -241,6 +265,53 @@ async def list_events(
     if await store.get_scan(scan_id) is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="scan not found")
     return [ScanEventOut.model_validate(e) for e in await store.events_for_scan(scan_id)]
+
+
+@router.get(
+    "/{scan_id}/report",
+    summary="Scan report as markdown, HTML or JSON",
+    response_class=Response,
+)
+async def get_scan_report(
+    scan_id: str,
+    fmt: str = Query(
+        "md", alias="format", description="One of: md, markdown, html, json"
+    ),
+    download: bool = Query(
+        False, description="Set true to force a file download instead of inline display"
+    ),
+    session: AsyncSession = Depends(get_db),
+) -> Response:
+    """
+    Render the full audit report for one scan.
+
+    Every format carries the same content, so a human reviewer and a CI job
+    cannot be told different stories about the same scan.
+    """
+    try:
+        rendered = await render_report(session, scan_id, fmt)
+    except ReportError as exc:
+        # A missing scan and a bad format are different mistakes; the client
+        # should not have to guess which one it made.
+        code = (
+            status.HTTP_404_NOT_FOUND
+            if "not found" in str(exc)
+            else status.HTTP_422_UNPROCESSABLE_ENTITY
+        )
+        raise HTTPException(status_code=code, detail=str(exc)) from exc
+
+    disposition = "attachment" if download else "inline"
+    return Response(
+        content=rendered.body,
+        media_type=rendered.media_type,
+        headers={
+            "Content-Disposition": f'{disposition}; filename="{rendered.filename}"',
+            # The report embeds code from an untrusted repository, so a stale
+            # cached copy sitting in a proxy or browser would be a real hazard.
+            "Cache-Control": "no-store",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
 
 
 @router.post("/{scan_id}/cancel", status_code=status.HTTP_202_ACCEPTED)

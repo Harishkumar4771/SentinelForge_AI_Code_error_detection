@@ -1,0 +1,137 @@
+{#- SentinelForge scan report (Markdown) -#}
+# Security & Quality Report: {{ r.project_name }}
+
+> **Scan** `{{ r.scan_id }}` &middot; **status** {{ r.scan_status }} &middot; **generated** {{ r.generated_at.strftime('%Y-%m-%d %H:%M UTC') }}{% if r.ai_provider %} &middot; **provider** `{{ r.ai_provider }}`{% endif %}
+
+> {{ r.assurance_statement }}
+
+## Summary
+
+| Metric | Value |
+| --- | --- |
+| Security score | **{{ r.summary.security_score }} / 100** |
+| Findings | {{ r.summary.total_findings }} |
+| Critical / High / Medium / Low | {{ r.summary.critical }} / {{ r.summary.high }} / {{ r.summary.medium }} / {{ r.summary.low }} |
+| Verified fixes | **{{ r.summary.verified_fixes }}** ({{ r.summary.coverage_pct }}% of findings) |
+| Fixes that failed verification | {{ r.summary.failed_fixes }} |
+| Still open for review | {{ r.summary.remaining }} |
+| Tests generated | {{ r.summary.tests_generated }} |
+| Scan duration | {{ duration(r.duration_seconds) }} |
+
+{% if r.summary.remaining > 0 %}
+> **Not everything was fixed.** {{ r.summary.remaining }} finding(s) have no verified fix. They are listed in full below rather than summarised away.
+{% endif %}
+{%- if r.error %}
+
+> **Scan error:** {{ r.error }}
+{%- endif %}
+{%- if r.ingestion_warnings %}
+
+> **Ingestion warnings:**
+{% for w in r.ingestion_warnings %}
+> - {{ w }}
+{% endfor %}
+{%- endif %}
+
+## Findings
+
+{% if not findings %}
+No findings were reported for this scan.
+{% else %}
+| # | Severity | Finding | Location | Status | Fix |
+| --- | --- | --- | --- | --- | --- |
+{% for f in findings %}
+| {{ loop.index }} | {{ f.severity }} | {{ f.title }} | `{{ f.location }}` | {{ f.status }} | {% if f.verified %}verified{% elif f.patch %}attempted{% else %}none{% endif %} |
+{% endfor %}
+{% endif %}
+{%- for f in findings %}
+
+---
+
+### {{ loop.index }}. {{ f.title }}
+
+{% for label, value in f.metadata %}
+- **{{ label }}:** {{ value }}
+{% endfor %}
+
+{% if f.description %}
+{{ f.description }}
+{% endif %}
+{% if f.code_snippet %}
+```{{ 'python' if f.file_path and f.file_path.endswith('.py') else '' }}
+{{ f.code_snippet }}
+```
+{% endif %}
+{% if f.impact %}
+
+**Impact.** {{ f.impact }}
+{% endif %}
+{% if f.recommendation %}
+
+**Recommendation.** {{ f.recommendation }}
+{% endif %}
+{% if f.patch %}
+
+#### Proposed fix &mdash; {{ f.patch.assurance }}
+
+{{ f.patch.explanation }}
+
+{% if f.patch.diff %}
+```diff
+{{ f.patch.diff }}
+```
+{% endif %}
+{% if f.patch.gates %}
+| Gate | Result | Detail |
+| --- | --- | --- |
+{% for g in f.patch.gates %}
+| {{ g.label }} | {{ 'PASS' if g.passed else '**FAIL**' }} | {{ g.detail or '-' }} |
+{% endfor %}
+{% else %}
+_No verification gates were recorded for this patch._
+{% endif %}
+{% if f.patch.reason %}
+
+**Why not verified.** {{ f.patch.reason }}
+{% endif %}
+{% endif %}
+{% if f.tests %}
+
+**Tests generated for this finding.**
+
+{% for t in f.tests %}
+- `{{ t.name }}` ({{ t.test_type }}{% if t.is_exploit_test %}, exploit test{% endif %}) &rarr; target `{{ t.target_file or 'n/a' }}`, status {{ t.status }}
+{% endfor %}
+{% endif %}
+{%- endfor %}
+{%- if r.orphan_patches %}
+
+## Unattributed patches
+
+These patches could not be linked back to a finding. They are shown so they are not silently dropped.
+
+{% for p in r.orphan_patches %}
+- `{{ p.file_path }}` &rarr; {{ p.validation_status }} (finding `{{ p.finding_id }}` not found)
+{% endfor %}
+{%- endif %}
+
+## Agent runs
+
+| Agent | Status | Findings | Duration | Notes |
+| --- | --- | --- | --- | --- |
+{% for a in r.agents %}
+| `{{ a.name }}` | {{ a.status }} | {{ a.findings_count }} | {{ '%.0f ms'|format(a.duration_ms or 0) }} | {{ a.message or '-' }} |
+{% endfor %}
+{%- if r.agents | selectattr('error') | list | length %}
+{% for a in r.agents if a.error %}
+- **{{ a.name }} error:** {{ a.error }}
+{% endfor %}
+{%- endif %}
+
+## Scan timeline
+
+| Progress | Phase | Message |
+| --- | --- | --- |
+{% for e in r.events %}
+| {{ '%.0f%%'|format(e.progress or 0) }} | {{ e.phase }}{% if e.agent %} (`{{ e.agent }}`){% endif %} | {{ e.message }} |
+{% endfor %}

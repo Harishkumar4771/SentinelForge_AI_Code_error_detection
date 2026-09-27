@@ -19,6 +19,7 @@ import sys
 from collections.abc import AsyncGenerator, Iterator
 
 import pytest
+import pytest_asyncio
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 DEMO_REPO = REPO_ROOT / "test-projects" / "vulnerable-python-app"
@@ -67,6 +68,44 @@ def snapshot(demo_repo: pathlib.Path):
     from app.services.repository import build_snapshot
 
     return build_snapshot(demo_repo)
+
+
+@pytest.fixture(scope="session")
+def scan_run(demo_repo: pathlib.Path, python_executable: str):
+    """
+    One real end-to-end scan of the demo repository, with its event timeline.
+
+    Session-scoped and synchronous: the orchestrator is fully async, so driving
+    it here with ``asyncio.run`` gives every test module a completed, verified
+    scan to assert against without paying for a fresh run each time. The events
+    are captured here because the orchestrator publishes them through a callback
+    rather than returning them.
+    """
+    import asyncio
+    from types import SimpleNamespace
+
+    from app.services.orchestrator import ScanOrchestrator
+
+    events: list[dict] = []
+
+    async def _run():
+        return await ScanOrchestrator(on_progress=events.append).run(
+            demo_repo, project_id="demo", python=python_executable
+        )
+
+    return SimpleNamespace(outcome=asyncio.run(_run()), events=events)
+
+
+@pytest_asyncio.fixture
+async def outcome(scan_run):
+    """The shared scan outcome."""
+    return scan_run.outcome
+
+
+@pytest.fixture
+def scan_events(scan_run) -> list[dict]:
+    """The progress events published during the shared scan."""
+    return scan_run.events
 
 
 @pytest.fixture
