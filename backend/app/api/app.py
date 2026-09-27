@@ -69,11 +69,12 @@ def create_app() -> FastAPI:
         expose_headers=["Content-Disposition"],
     )
 
-    from app.api.routes import projects, scans, uploads
+    from app.api.routes import github, projects, scans, uploads
 
     app.include_router(projects.router, prefix=API_PREFIX)
     app.include_router(scans.router, prefix=API_PREFIX)
     app.include_router(uploads.router, prefix=API_PREFIX)
+    app.include_router(github.router, prefix=API_PREFIX)
 
     @app.get(f"{API_PREFIX}/health", response_model=HealthOut, tags=["system"])
     async def health() -> HealthOut:
