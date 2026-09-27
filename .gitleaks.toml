@@ -1,0 +1,21 @@
+title = "SentinelForge secret-scanning policy"
+
+[extend]
+# Start from gitleaks' built-in rules, then add the narrow exception below.
+useDefault = true
+
+# The vulnerable-fixture repository under test-projects/ is a deliberate test
+# input: it MUST contain hardcoded credentials, or the CWE-798 detectors
+# (sentinelforge.hardcoded-credential-assignment, sentinelforge.hardcoded-aws-key)
+# have nothing to find and the whole scan/verification suite loses its ground
+# truth. Every value in it is synthetic -- the AWS pair is the literal example
+# key published in the AWS documentation (AKIAIOSFODNN7EXAMPLE), not a live
+# credential.
+#
+# The exception is anchored to that directory only. A real credential in any
+# other tracked file still fails the scan.
+[[allowlists]]
+description = "Synthetic credentials in the deliberately vulnerable test fixture"
+paths = [
+  '''^test-projects/vulnerable-python-app/''',
+]
