@@ -33,7 +33,7 @@ import time
 import uuid
 from pathlib import Path
 
-from app.core.config import settings
+from app.core import config
 from app.core.logging_config import get_logger
 from app.sandbox.base import (
     CommandResult,
@@ -44,15 +44,24 @@ from app.sandbox.base import (
 
 logger = get_logger(__name__)
 
-#: Staging root for local workspaces.
-LOCAL_ROOT = settings.data_dir / "local-sandbox"
-
 #: Environment variables that must never reach repository code.
 _STRIPPED = {
     "AWS_SECRET_ACCESS_KEY", "AWS_ACCESS_KEY_ID", "GITHUB_TOKEN", "GH_TOKEN",
     "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "IBM_WATSONX_API_KEY",
     "DATABASE_URL", "IBM_WATSONX_PROJECT_ID",
 }
+
+
+def local_root() -> Path:
+    """
+    Staging root for local workspaces.
+
+    Resolved per call rather than frozen into a module constant: the path
+    depends on configuration, and a value captured at import time ignores any
+    later configuration change. That is how test runs ended up staging
+    untrusted code inside the checkout.
+    """
+    return config.settings.data_dir / "local-sandbox"
 
 
 class LocalExecutor(SandboxBackendBase):
@@ -64,7 +73,9 @@ class LocalExecutor(SandboxBackendBase):
     def __init__(self, *, allow: bool | None = None):
         # The fallback must be explicitly permitted, so a misconfigured
         # deployment fails loudly instead of silently running untrusted code.
-        self.allow = settings.sandbox_allow_local_fallback if allow is None else allow
+        self.allow = (
+            config.settings.sandbox_allow_local_fallback if allow is None else allow
+        )
 
     async def is_available(self) -> tuple[bool, str]:
         if not self.allow:
@@ -87,7 +98,7 @@ class LocalExecutor(SandboxBackendBase):
 
             raise SandboxUnavailable(self.name, reason)
 
-        root = LOCAL_ROOT / uuid.uuid4().hex[:12]
+        root = local_root() / uuid.uuid4().hex[:12]
         shutil.copytree(source, root, symlinks=False, ignore=shutil.ignore_patterns(
             ".git", "__pycache__", "node_modules", ".venv", "*.pyc"
         ))
@@ -108,7 +119,7 @@ class LocalExecutor(SandboxBackendBase):
             for key, value in os.environ.items()
             if key not in _STRIPPED and not key.startswith("IBM_")
         }
-        env.update(settings.sandbox_env)
+        env.update(config.settings.sandbox_env)
         env.update(extra or {})
         env["SENTINELFORGE_SANDBOX"] = "local-unisolated"
         return env
@@ -220,4 +231,4 @@ def describe() -> dict[str, object]:
     }
 
 
-__all__ = ["LOCAL_ROOT", "LocalExecutor", "describe"]
+__all__ = ["local_root", "LocalExecutor", "describe"]

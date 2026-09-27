@@ -42,6 +42,43 @@ def _interpreter() -> str:
     return sys.executable
 
 
+@pytest.fixture(autouse=True, scope="session")
+def isolated_runtime(tmp_path_factory):
+    """
+    Keep every test's runtime state out of the repository.
+
+    Without this, the API tests extract uploaded archives into
+    ``data/workspaces/`` inside the checkout, because a dozen application
+    modules do ``from app.core.config import settings`` at import time and so
+    captured whatever Settings existed then. The result was 99 stale copies of
+    the demo repository accumulating in the working tree between runs.
+
+    So: point the environment at a temporary data directory, rebuild Settings,
+    and rebind it on every already-imported module. One Settings instance per
+    process is still the right production behaviour -- the problem is only that
+    tests need to *replace* it.
+    """
+    import app.core.config as config
+
+    root = tmp_path_factory.mktemp("sentinelforge-runtime")
+    os.environ["SENTINELFORGE_DATA_DIRNAME"] = str(root / "data")
+    os.environ["SENTINELFORGE_DATABASE_URL"] = f"sqlite+aiosqlite:///{root / 'default.db'}"
+    os.environ["SENTINELFORGE_LOG_LEVEL"] = "WARNING"
+
+    fresh = config.Settings()
+    config.settings = fresh
+    for module in list(sys.modules.values()):
+        if module is None:
+            continue
+        if isinstance(getattr(module, "settings", None), config.Settings):
+            module.settings = fresh
+
+    (root / "data").mkdir(parents=True, exist_ok=True)
+    yield root
+    os.environ.pop("SENTINELFORGE_DATA_DIRNAME", None)
+    os.environ.pop("SENTINELFORGE_DATABASE_URL", None)
+
+
 @pytest.fixture(scope="session")
 def python_executable() -> str:
     return _interpreter()
@@ -128,25 +165,25 @@ async def db_session(tmp_path, monkeypatch) -> AsyncGenerator:
 
 
 @pytest.fixture
-async def api_client(tmp_path, monkeypatch) -> AsyncGenerator:
+async def api_client(tmp_path) -> AsyncGenerator:
     """
     An HTTP client bound to the real ASGI app, with lifespan run.
 
     ``httpx.ASGITransport`` does not run startup/shutdown hooks, so the app's
     lifespan is entered manually to get a real schema and a clean scan registry.
+
+    Runtime paths are already redirected by the session-scoped
+    ``isolated_runtime`` fixture; only the database engine is per-test.
     """
     from httpx import ASGITransport, AsyncClient
 
-    monkeypatch.setenv("SENTINELFORGE_DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path/'api.db'}")
-    monkeypatch.setenv("SENTINELFORGE_DATA_DIRNAME", str(tmp_path / "data"))
-    monkeypatch.setenv("SENTINELFORGE_LOG_LEVEL", "WARNING")
-
-    # Settings are cached at import time; rebuild them for this test.
     import app.core.config as config
     import app.core.database as database
 
-    config.settings = config.Settings()
-    database.settings = config.settings
+    # Same runtime paths as the session fixture, plus a per-test database.
+    database.settings = config.Settings(
+        database_url=f"sqlite+aiosqlite:///{tmp_path / 'api.db'}",
+    )
     database.engine = database._build_engine()
     database.async_session.configure(bind=database.engine)
 
