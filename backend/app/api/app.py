@@ -54,15 +54,12 @@ def create_app() -> FastAPI:
     )
     
     app.add_middleware(
-        CORSMiddleware,
-        allow_origins=[
-            "https://sentinel-forge-ai-code-error-detect.vercel.app",
-            "https://sentinel-forge-ai-code-error-detection-qjethpsbd.vercel.app"
-        ],
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
+    CORSMiddleware,
+    allow_origins=["*"],  # Allows any Vercel domain to connect
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
     
     # ... rest of your app setup
 
