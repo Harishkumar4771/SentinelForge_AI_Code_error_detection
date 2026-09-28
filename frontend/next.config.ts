@@ -6,7 +6,7 @@ const nextConfig: NextConfig = {
     return [
       {
         source: "/api/:path*",
-        destination: "https://" + "sentinelforge-ai-code-error-detection.onrender.com" + "/:path*",
+        destination: "https://" + "sentinelforge-ai-code-error-detection.onrender.com" + "/api/:path*",
       },
     ];
   },

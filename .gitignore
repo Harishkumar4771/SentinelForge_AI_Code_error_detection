@@ -69,4 +69,4 @@ next-env.d.ts
 # --- Tooling binaries ---
 security-rules/.semgrep/
 .security-platform/
-prompt.txt
+
