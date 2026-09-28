@@ -51,23 +51,20 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title=config.settings.app_name,
         version=config.settings.app_version,
-        description=(
-            "Repository analysis, agent-driven triage, and sandbox-verified fixes. "
-            "A fix is only reported as verified when an exploit reproduced the "
-            "defect, the patch applied, the test suite stayed green and a rescan "
-            "came back clean."
-        ),
-        lifespan=lifespan,
     )
-
+    
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=config.settings.cors_origins,
+        allow_origins=[
+            "https://sentinel-forge-ai-code-error-detect.vercel.app",
+            "https://sentinel-forge-ai-code-error-detection-qjethpsbd.vercel.app"
+        ],
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
-        expose_headers=["Content-Disposition"],
     )
+    
+    # ... rest of your app setup
 
     from app.api.routes import github, projects, scans, uploads
 
